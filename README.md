@@ -1,3 +1,9 @@
+/* * Fractal Constraints Framework - Phase One
+ * Author: Voltberg
+ * Theory: Path-Sealing Logic & Fractal Alignment
+ * [Link to GitHub Repo]
+ */
+
 # Fractal Constraints Framework (FCF)
 
 **MASTER SYNOPSIS — CANON VERSION**
