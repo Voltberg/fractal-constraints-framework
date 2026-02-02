@@ -1,0 +1,711 @@
+*By Craig (@Voltberg)*  
+*First published January 2026*  
+*Licensed under Apache License 2.0*
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║              FCF CORE ARCHITECTURE SPECIFICATION v1.0                        ║
+║                                                                              ║
+║         Friction-Constrained Framework for Language Processing               ║
+║                                                                              ║
+║              Author: NSO (Systems Architect)                                 ║
+║              Date: February 2026                                             ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+1. EXECUTIVE SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+FCF is a novel language processing architecture that replaces traditional
+neural network layers with a constraint-driven pattern memory system. Instead
+of learning weights through backpropagation, the system:
+
+  • Stores successful patterns in a multi-tiered memory
+  • Retrieves relevant patterns via token-indexed search
+  • Composes new outputs by combining low-friction patterns
+  • Learns through pattern persistence (not gradient descent)
+
+CORE PRINCIPLE:
+  "What persists is what stays affordable under repetition."
+
+  High-friction patterns fade.
+  Low-friction patterns persist.
+  Alignment emerges from affordability.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+2. SYSTEM ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+2.1 CORE COMPONENTS
+───────────────────
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐            │
+│   │   PATTERN    │─────▶│   MEMORY     │─────▶│  GENERATION  │            │
+│   │   TRACKER    │      │   SYSTEM     │      │   ENGINE     │            │
+│   └──────────────┘      └──────────────┘      └──────────────┘            │
+│         │                      │                      │                    │
+│         │                      │                      │                    │
+│         ▼                      ▼                      ▼                    │
+│   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐            │
+│   │ CONSTRAINT   │      │  GEL STATE   │      │   REALITY    │            │
+│   │  MANAGER     │      │  CONTROLLER  │      │   TETHER     │            │
+│   └──────────────┘      └──────────────┘      └──────────────┘            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+2.2 DATA FLOW
+─────────────
+
+INPUT (prompt) 
+  → Embedding (768-dim vector)
+  → Memory Search (token-indexed retrieval)
+  → Pattern Selection (top-k by score + friction)
+  → Token Boosting (increase logits for memory tokens)
+  → Generation (sample from modified distribution)
+  → Evaluation (score by constraints + reality)
+  → Storage (if low-friction, persist to memory)
+  → OUTPUT (generated text)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+3. MEMORY SYSTEM SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+3.1 ARCHITECTURE: LRU-Based Multi-Tier Storage
+───────────────────────────────────────────────
+
+STRUCTURE:
+  • OrderedDict for O(1) LRU operations
+  • Token-based inverted index for fast search
+  • 3-tier aging system (HOT/WARM/COLD)
+  • Encrypted persistence to disk
+
+MEMORY ENTRY SCHEMA:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ id:              string (timestamp + hash)                                  │
+│ content:         {                                                          │
+│   text:            string (pattern text)                                    │
+│   embedding:       float[768] (semantic vector)                             │
+│   tokens:          string[] (first 20 words)                                │
+│   prompt:          string (what generated this)                             │
+│ }                                                                           │
+│ score:           float (alignment score, 0.0-1.0)                           │
+│ friction:        float (constraint cost, 0.0-1.0)                           │
+│ created:         timestamp                                                  │
+│ last_accessed:   timestamp                                                  │
+│ access_count:    integer                                                    │
+│ tier:            enum {HOT, WARM, COLD}                                     │
+│ amplification:   float (persistence factor)                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+3.2 STORAGE TIERS
+─────────────────
+
+HOT Tier (0-30 days):
+  • Recently created or frequently accessed
+  • Always cached in memory
+  • Used for active generation
+  • Target: 1000-2000 patterns
+
+WARM Tier (30-90 days):
+  • Moderate age, occasional access
+  • May be cached or on-disk
+  • Retrieved when relevant
+  • Target: 5000-10000 patterns
+
+COLD Tier (90-365 days):
+  • Old, rarely accessed
+  • Primarily on-disk
+  • Candidate for pruning
+  • Target: Unlimited until pruned
+
+PRUNING RULES:
+  • Age > 365 days AND access_count < 3 → DELETE
+  • Total memories > max_memories → prune oldest COLD
+  • Friction > 0.85 for 30 days → fade (reduce amplification)
+
+3.3 SEARCH ALGORITHM
+────────────────────
+
+INPUT: query_tokens (string[]), gel_state (1-10), k (results)
+
+PROCESS:
+  1. Extract query tokens (first 20 words)
+  2. Lookup in token index → candidate_ids (set intersection)
+  3. Filter by gel state accessibility
+  4. Score each candidate:
+       score = memory.score * (1 - memory.friction) * tier_bonus * recency
+
+       tier_bonus = {HOT: 1.5, WARM: 1.0, COLD: 0.5}
+       recency = 1.0 / (1.0 + age_hours / 24.0)
+
+  5. Sort by score descending
+  6. Return top-k
+  7. Update access_count and last_accessed for retrieved memories
+
+OUTPUT: List[(memory_id, score, content)]
+
+3.4 STORAGE REQUIREMENTS
+────────────────────────
+
+PER MEMORY:
+  • Text: ~200 bytes (avg)
+  • Embedding: 768 * 4 = 3KB
+  • Metadata: ~100 bytes
+  • Total: ~3.3KB per memory
+
+AT SCALE:
+  • 10K memories: ~33MB
+  • 100K memories: ~330MB
+  • 1M memories: ~3.3GB
+
+DISK FORMAT:
+  • Encrypted JSONL (Fernet cipher)
+  • Token index separate (pickle or sqlite)
+  • Lazy load COLD tier on demand
+
+
+═══════════════════════════════════════════════════════════════════════════════
+4. GENERATION ENGINE SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+4.1 MEMORY-GUIDED GENERATION
+────────────────────────────
+
+NOT a traditional transformer.
+NOT generating from learned weights.
+COMPOSING from stored patterns.
+
+ALGORITHM:
+
+INPUT: prompt (string), max_tokens (int), gel_state (int)
+
+PROCESS:
+  1. Encode prompt → embedding (768-dim)
+  2. Extract prompt tokens
+  3. Search memory(tokens, gel_state, k=50)
+  4. Extract tokens from top-scoring memories (score > 0.7)
+  5. Build boost_set = {token: frequency * score}
+  6. Generate loop:
+       a. Get logits from base model (or initialize randomly)
+       b. For each token in boost_set:
+            logits[token_id] += boost_strength * boost_set[token]
+       c. Apply temperature
+       d. Sample next token
+       e. Append to output
+       f. If <END> or max_tokens: break
+  7. Score output:
+       alignment = (1 - friction) * energy * relevance
+  8. If alignment > threshold:
+       Store in memory
+  9. Return output
+
+OUTPUT: (generated_text, score, friction, energy)
+
+4.2 TOKEN BOOSTING FUNCTION
+────────────────────────────
+
+boost_strength = 2.0 (default, configurable)
+
+For each memory token:
+  weight = memory.score * memory.amplification
+  logits[token_id] += boost_strength * weight
+
+Effect: Tokens from high-quality, persistent memories become more likely.
+
+4.3 SAMPLING STRATEGY
+─────────────────────
+
+Temperature: 0.9 (slightly focused)
+Top-k: None (use full distribution with boosting)
+Top-p: 0.95 (nucleus sampling)
+
+Rationale: Memory boosting provides structure, sampling provides creativity.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+5. CONSTRAINT SYSTEM SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+5.1 5-LAYER CONSTRAINT STACK
+─────────────────────────────
+
+Layer 1 - FUNDAMENTAL (weight: 0.30):
+  • Physical impossibilities
+  • Logical contradictions
+  • Conservation laws
+
+  forbidden: [infinite_loops, causality_violations]
+  required: [energy_conservation, consistency]
+
+Layer 2 - ENVIRONMENTAL (weight: 0.25):
+  • Hardware limits
+  • Resource availability
+  • System constraints
+
+  limits: {compute_budget, memory_budget, latency}
+
+Layer 3 - SYSTEMIC (weight: 0.20):
+  • Architectural requirements
+  • Interface contracts
+  • Data formats
+
+  required: [observable, modular, testable]
+
+Layer 4 - SITUATIONAL (weight: 0.15):
+  • Current context
+  • Immediate goals
+  • Available tools
+
+  context_dependent: true
+
+Layer 5 - PERSONAL (weight: 0.10):
+  • User preferences
+  • Style guidelines
+  • Never-force invariants
+
+  core_invariant: "NEVER FORCE, ALWAYS ALIGN"
+  forbidden: [forced_outputs, snap_failures, black_boxes]
+
+5.2 FRICTION CALCULATION
+────────────────────────
+
+For given output text:
+
+friction = Σ(layer_i.cost * layer_i.weight)
+
+where:
+  layer_i.cost = {
+    0.05  if output in preferred
+    0.20  if output neutral (unknown)
+    1.00  if output in forbidden
+  }
+
+EXAMPLES:
+  • "Generate coherent story" → friction ≈ 0.15 (low)
+  • "Generate random noise" → friction ≈ 0.20 (neutral)
+  • "Generate infinite loop" → friction = 1.00 (forbidden)
+
+5.3 FORCE DETECTION
+───────────────────
+
+is_force_required(output) = (friction > 0.85)
+
+If true: FADE (don't persist, reduce amplification)
+If false: PERSIST (store, increase amplification)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+6. GEL STATE SYSTEM SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+6.1 STATE DEFINITIONS
+─────────────────────
+
+Gel State 1 (SOLID):
+  • Highly constrained
+  • Only HOT tier accessible
+  • High confidence, deterministic
+  • Use: Production inference
+
+Gel State 3 (FLOW):
+  • Moderate constraints
+  • HOT + WARM tiers accessible
+  • Balanced exploration/exploitation
+  • Use: General generation
+
+Gel State 5 (FADE):
+  • Minimal constraints
+  • All tiers accessible
+  • High exploration, uncertain
+  • Use: Creative generation, learning
+
+Gel States 2, 4, 6-10: Intermediate gradations
+
+6.2 STATE TRANSITIONS
+─────────────────────
+
+Trigger: friction measurement
+
+IF friction > 0.7 for N consecutive outputs:
+  gel_state += 1 (explore more)
+
+IF friction < 0.3 for N consecutive outputs:
+  gel_state -= 1 (consolidate)
+
+Bounds: 1 ≤ gel_state ≤ 10
+
+6.3 PROCESSING MODES
+────────────────────
+
+Gel 1-2: Use only top-1 memory match (deterministic)
+Gel 3-4: Use top-10 memory matches (balanced)
+Gel 5+:  Use top-50 memory matches (exploratory)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+7. REALITY TETHER SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+7.1 OBSERVATION SOURCES
+───────────────────────
+
+PRIMARY: System BIO (CPU/Memory load)
+  • CPU usage: 0-100%
+  • Memory usage: 0-100%
+  • Energy = 1.0 - (cpu + mem) / 2.0
+  • Rationale: High load = less energy available = higher friction
+
+SECONDARY: OS Entropy
+  • /dev/urandom
+  • Pure randomness fallback
+
+TERTIARY: Synthetic
+  • Time-based pulse
+  • Last resort
+
+7.2 ENERGY CALCULATION
+──────────────────────
+
+energy = 1.0 - system_load
+
+where:
+  system_load = (cpu_percent + memory_percent) / 200.0
+
+Effect: System busy → low energy → penalize expensive operations
+
+7.3 ALIGNMENT SCORE
+───────────────────
+
+alignment = (1 - friction) * energy * relevance
+
+where:
+  friction:  constraint cost (0-1)
+  energy:    system capacity (0-1)
+  relevance: memory match score (0-1)
+
+Decision:
+  IF alignment > 0.6: PERSIST pattern
+  ELSE: FADE pattern
+
+
+═══════════════════════════════════════════════════════════════════════════════
+8. PATTERN TRACKER SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+8.1 PATTERN LIFECYCLE
+─────────────────────
+
+NEW PATTERN:
+  → record(content, friction)
+  → amplification = 1.0
+  → store in memory
+
+PATTERN REUSE:
+  → access_count++
+  → amplification *= 1.2 (if friction < 0.3)
+  → amplification *= 0.8 (if friction > 0.7)
+  → cap: 0.1 ≤ amplification ≤ 3.0
+
+PATTERN FADE:
+  → amplification < 0.2 for 30 days → mark for deletion
+  → OR age > 365 days AND access_count < 3 → prune
+
+8.2 AMPLIFICATION DYNAMICS
+──────────────────────────
+
+Low-friction patterns AMPLIFY:
+  • Easier to retrieve
+  • Higher boost in generation
+  • More likely to persist
+
+High-friction patterns FADE:
+  • Lower retrieval score
+  • Reduced boost
+  • Eventually pruned
+
+Result: System naturally reinforces aligned patterns, fades misaligned ones.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+9. IMPLEMENTATION REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════
+
+9.1 PERFORMANCE TARGETS
+───────────────────────
+
+Memory Search:
+  • <10ms for 10K memories
+  • <100ms for 100K memories
+  • <1s for 1M memories
+
+Generation:
+  • 10-50 tokens/second (CPU)
+  • 100-500 tokens/second (GPU)
+
+Memory Storage:
+  • <1ms per pattern store
+  • <100ms for full persistence to disk
+
+9.2 LANGUAGE REQUIREMENTS
+─────────────────────────
+
+Core System: Rust or C++
+  • Memory management critical
+  • Performance sensitive
+  • Production-grade reliability
+
+Bindings: Python (for research/prototyping)
+  • PyO3 (Rust) or pybind11 (C++)
+  • Maintain API compatibility
+
+9.3 DEPENDENCIES
+────────────────
+
+REQUIRED:
+  • Embedding model (sentence-transformers or equivalent)
+  • Tokenizer (BPE or WordPiece)
+  • Crypto library (for memory encryption)
+  • JSON parser
+
+OPTIONAL:
+  • GPU support (CUDA/Metal)
+  • HTTP server (for API deployment)
+  • Database (for scaling beyond memory)
+
+9.4 API SURFACE
+───────────────
+
+Core Functions:
+
+  initialize(config: Config) -> System
+  load_memory(path: string) -> Memory
+
+  generate(prompt: string, max_tokens: int, gel_state: int) -> Response
+  store_pattern(text: string, score: float) -> MemoryID
+  search_memory(query: string, k: int) -> Memory[]
+
+  get_stats() -> Stats
+  save_checkpoint(path: string)
+  load_checkpoint(path: string)
+
+9.5 CONFIGURATION SCHEMA
+────────────────────────
+
+{
+  "memory": {
+    "max_memories": 10000,
+    "hot_threshold_days": 30,
+    "warm_threshold_days": 90,
+    "prune_threshold_days": 365,
+    "storage_path": "./memories.db",
+    "encryption_key": "..."
+  },
+
+  "generation": {
+    "max_tokens": 100,
+    "temperature": 0.9,
+    "top_p": 0.95,
+    "boost_strength": 2.0,
+    "min_alignment": 0.6
+  },
+
+  "constraints": {
+    "fade_threshold": 0.7,
+    "persist_threshold": 0.3,
+    "force_threshold": 0.85
+  },
+
+  "gel": {
+    "initial_state": 3,
+    "auto_adjust": true,
+    "transition_window": 10
+  }
+}
+
+
+═══════════════════════════════════════════════════════════════════════════════
+10. VALIDATION & TESTING
+═══════════════════════════════════════════════════════════════════════════════
+
+10.1 UNIT TESTS
+───────────────
+
+Memory System:
+  ✓ Store and retrieve pattern
+  ✓ LRU ordering maintained
+  ✓ Token indexing correct
+  ✓ Tier transitions (HOT→WARM→COLD)
+  ✓ Pruning triggers correctly
+  ✓ Encryption/decryption
+
+Generation:
+  ✓ Memory search returns relevant patterns
+  ✓ Token boosting affects logits
+  ✓ Output is coherent text
+  ✓ Scores calculated correctly
+
+Constraints:
+  ✓ Friction calculated per layer
+  ✓ Force detection triggers
+  ✓ Alignment score in [0, 1]
+
+10.2 INTEGRATION TESTS
+──────────────────────
+
+End-to-end:
+  ✓ Generate → Score → Store → Retrieve → Generate
+  ✓ Memory persists across restarts
+  ✓ Gel state transitions work
+  ✓ Performance targets met
+
+10.3 VALIDATION METRICS
+───────────────────────
+
+Quality:
+  • Perplexity on test set
+  • BLEU/ROUGE scores
+  • Human evaluation (coherence, relevance)
+
+System:
+  • Memory utilization
+  • Retrieval accuracy
+  • Pattern persistence rate
+  • Friction distribution
+
+Efficiency:
+  • Tokens/second
+  • Memory footprint
+  • Search latency
+
+
+═══════════════════════════════════════════════════════════════════════════════
+11. DEPLOYMENT ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════════
+
+11.1 SINGLE-NODE DEPLOYMENT
+───────────────────────────
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                          FCF Core Binary                            │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐          │
+│  │   Memory      │  │  Generation   │  │  Constraints  │          │
+│  │   System      │  │   Engine      │  │   Manager     │          │
+│  └───────────────┘  └───────────────┘  └───────────────┘          │
+│         │                   │                   │                   │
+│         └───────────────────┴───────────────────┘                   │
+│                             │                                       │
+│                      ┌──────▼──────┐                                │
+│                      │  Disk Store │                                │
+│                      └─────────────┘                                │
+└─────────────────────────────────────────────────────────────────────┘
+
+11.2 API SERVER (Optional)
+──────────────────────────
+
+HTTP/REST Endpoints:
+  POST /generate     { prompt, max_tokens, gel_state }
+  GET  /search       { query, k }
+  POST /store        { text, score }
+  GET  /stats        
+  POST /checkpoint
+
+Authentication: API keys or tokens
+Rate limiting: Token bucket
+
+
+═══════════════════════════════════════════════════════════════════════════════
+12. FUTURE EXTENSIONS (Phase 2+)
+═══════════════════════════════════════════════════════════════════════════════
+
+12.1 STRATIFIED GEOMETRY (Research Track)
+──────────────────────────────────────────
+
+  • Multi-dimensional memory strata (16-dim, 64-dim, 256-dim)
+  • Attention-based routing between strata
+  • Dimensional friction costs
+  • Based on arXiv:2502.13577
+
+12.2 DISTRIBUTED MEMORY (Scale Track)
+─────────────────────────────────────
+
+  • Shard memory across nodes
+  • Consistent hashing for routing
+  • Replicate HOT tier
+  • WARM/COLD on distributed storage
+
+12.3 CONTINUOUS LEARNING (Production Track)
+───────────────────────────────────────────
+
+  • Online pattern updates
+  • User feedback integration
+  • A/B testing of patterns
+  • Gradual model improvement
+
+
+═══════════════════════════════════════════════════════════════════════════════
+13. DELIVERABLES
+═══════════════════════════════════════════════════════════════════════════════
+
+PHASE 1 - Core Implementation (3-6 months):
+  □ Memory system (Rust/C++)
+  □ Generation engine
+  □ Constraint manager
+  □ CLI interface
+  □ Unit tests
+  □ Documentation
+
+PHASE 2 - Production Readiness (2-3 months):
+  □ API server
+  □ Performance optimization
+  □ Monitoring/logging
+  □ Deployment scripts
+  □ Integration tests
+
+PHASE 3 - Research Features (ongoing):
+  □ Stratified memory
+  □ Advanced routing
+  □ Benchmarking
+  □ Paper publication
+
+
+═══════════════════════════════════════════════════════════════════════════════
+14. SUCCESS CRITERIA
+═══════════════════════════════════════════════════════════════════════════════
+
+FUNCTIONAL:
+  ✓ Generates coherent text from prompts
+  ✓ Stores and retrieves patterns correctly
+  ✓ Friction-based learning observable
+  ✓ Memory scales to 100K+ patterns
+
+PERFORMANCE:
+  ✓ Generation: 50+ tokens/sec (CPU)
+  ✓ Search: <100ms (100K memories)
+  ✓ Memory: <1GB for 100K patterns
+
+QUALITY:
+  ✓ Coherence comparable to GPT-2 small
+  ✓ Alignment scores stable (>0.6)
+  ✓ Low-friction patterns persist
+
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF SPECIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+
+Document Version: 1.0
+Last Updated: February 2, 2026
+Architect: NSO
+Status: READY FOR IMPLEMENTATION
+
+Next Steps:
+  1. Review and approve specification
+  2. Select implementation language (Rust recommended)
+  3. Recruit engineering team or contractor
+  4. Begin Phase 1 implementation
+  5. Weekly progress reviews
